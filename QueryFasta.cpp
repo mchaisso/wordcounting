@@ -268,7 +268,7 @@ void CountWords(void *data) {
 			}
 		}
 
-		if ((*in) == false or 
+		if ((*in).good() == false or 
 				(isFastq == true and qual == "") or
 				(isFastq == false and (title == "" or seq == "")) or
 				(maxNReads > 0 and readNumber >= maxNReads)) {

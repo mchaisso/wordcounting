@@ -29,7 +29,7 @@ int InitializeTupleFromBam(uint8_t *seq, int pos, int length, BitNucVector &tupl
 	i = 0;
 	while (isInitialized == false and pos < length - tuple.k + 1) {
 		for (i = 0; i < tuple.k; i++) {
-			int nuc = bam1_seqi(seq, i+pos);
+			int nuc = bam_seqi(seq, i+pos);
 			if (nuc == 16) {
 				pos = i;
 				tuple.Clear();
@@ -52,7 +52,7 @@ int InitializeTupleFromBam(uint8_t *seq, int pos, int length, BitNucVector &tupl
 }
 
 int AdvanceNucleotide(uint8_t* seq, int pos, int length, BitNucVector &tuple) {
-	int nuc = bam1_seqi(seq, pos+tuple.k);
+	int nuc = bam_seqi(seq, pos+tuple.k);
 	if (pos +tuple.k >= length) {
 		return pos + tuple.k;
 	}
@@ -70,10 +70,11 @@ int AdvanceNucleotide(uint8_t* seq, int pos, int length, BitNucVector &tuple) {
 
 class Counts {
 public:
-	samfile_t *in;  	
+	samFile *in;  	
 	map<BitNucVector, int> *tupleToIndex;
 	vector<int> *queryCount;
 	int *readIndex ;
+	bam_hdr_t* header;
 };
 
 string GetSeq(bam1_t *b) {
@@ -81,9 +82,9 @@ string GetSeq(bam1_t *b) {
 	string res;
 	res.resize(lSeq);
 	int i;
-	uint8_t *seq = bam1_seq(b);
+	uint8_t *seq = bam_get_seq(b);
 	for (i = 0; i < lSeq; i++) {
-		res[i] = BamToAscii[bam1_seqi(seq,i)];
+		res[i] = BamToAscii[bam_seqi(seq,i)];
 	}
 	return res;
 }
@@ -92,21 +93,22 @@ void CountWords(void *data) {
 	map<BitNucVector, int> &tupleToIndex =  *((Counts*)data)->tupleToIndex;
 	vector<int> &queryCount = *((Counts*)data)->queryCount;
 	int &readNumber = *((Counts*)data)->readIndex;
-	samfile_t *in = ((Counts*)data)->in;
+	samFile *in = ((Counts*)data)->in;
 	bam1_t *b = bam_init1();
+	bam_hdr_t *header = ((Counts*)data)->header;
 	map<BitNucVector, int>::iterator searchResult;
 
 	while (true) {
 		int retval;
 		retval = sem_wait(semreader);		
-		retval = bam_read1(in->x.bam, b);
+		retval = sam_read1(in, header, b);
 		if (retval <= 0) {
 			sem_post(semreader);
 			return;
 		}
 		sem_post(semreader);
 
-		uint8_t *seq = bam1_seq(b);
+		uint8_t *seq = bam_get_seq(b);
 		int seqLength = b->core.l_qseq;
 		string str = GetSeq(b);
 		int seqPos = 0;
@@ -214,9 +216,10 @@ int main(int argc, char* argv[]) {
 		}
 		
 	}
-	samfile_t *in;  
-	in = samopen(bamFileName.c_str(), "rb", 0);
-
+	samFile *in;  
+	in = hts_open(bamFileName.c_str(), "rb");
+	bam_hdr_t *header = sam_hdr_read(in);
+	
 	//  idx = bam_index_load(bamFileName.c_str());
 	bam1_t *b = bam_init1();
 	map<BitNucVector, int>::iterator searchResult;
@@ -227,6 +230,7 @@ int main(int argc, char* argv[]) {
 	counts.tupleToIndex = &tupleToIndex;
 	counts.queryCount = &queryCount;
 	counts.readIndex = &readNumber;
+	counts.header = header;
 
 	semreader     = sem_open("/semreader",     O_CREAT, 0644, 1);
 	semcount      = sem_open("/semcount",     O_CREAT, 0644, 1);
